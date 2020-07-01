@@ -10,6 +10,13 @@ import os
 from os import path
 import re
 import json
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import train_test_split
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+from nltk.stem.wordnet import WordNetLemmatizer
+import string
+from nltk.corpus import stopwords
 
 if not path.exists('sentbox'):
     os.makedirs('sentbox')
@@ -23,17 +30,6 @@ if not path.exists('receivedbox\\queue'):
 if not path.isfile("accounts.txt"):
     with open(path.join(os.getcwd(), "accounts.txt"), 'w') as _:
         _.write("{}")
-
-
-spamwords = ["dhir", "spam", "money", "$$$", "lottery"]
-if not path.isfile("spamwords.txt"):
-    with open(path.join(os.getcwd(), "spamwords.txt"), 'a') as f:
-        f.write("\n".join(spamwords))
-
-with open(path.join(os.getcwd(), "spamwords.txt"), 'r') as f:
-    spamwords = f.readlines()
-
-spamwords = [re.sub('\n', '', word) for word in spamwords]
 
 window = Tk()
 window.geometry("250x400")
@@ -108,7 +104,38 @@ class mail:
         self.enteremail.grid_forget()
         self.emptybody.grid_forget()
         self.illegalseq.grid_forget()
-        
+
+    def classifier(self, l1):
+        df = pd.read_csv("spam_ham_dataset.csv")
+
+        df = df.drop(df.columns[[0, 1]], axis=1)
+        df.columns = ["text", "target"]
+        df.drop_duplicates(inplace=True)
+
+        stop = set(stopwords.words('english'))
+        exclude = set(string.punctuation)
+        lemma = WordNetLemmatizer()
+
+        def preprocessing(text):
+            stop_free = " ".join([i for i in text.lower().split() if i not in stop])
+            punc_free = ''.join(ch for ch in stop_free if ch not in exclude)
+            normalized = " ".join(lemma.lemmatize(word) for word in punc_free.split())
+            return normalized
+
+        df["text"] = df["text"].apply(preprocessing)
+
+        X, y = df["text"], df["target"]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
+
+        vect = CountVectorizer(analyzer="word", min_df=4, ngram_range=(1, 2)).fit(X_train)
+
+        X_train_vectorised = vect.transform(X_train)
+
+        clf = MultinomialNB().fit(X_train_vectorised, y_train)
+
+        return clf.predict(vect.transform(l1))
+
     def sendfunc(self):
         self.forgeterrors()
         dir = path.dirname(__file__)
@@ -129,11 +156,10 @@ class mail:
                                 isIllegal = True
                                 break
                         if not isIllegal:
-                            for word in spamwords:
-                                if word in content:
-                                    ndir = path.join(
-                                        dir, f"sentbox\\spam\\{x}--{to}.txt")
-                                    break
+                            ans = self.classifier([content])
+                            if 1 in ans:
+                                ndir = path.join(
+                                    dir, f"sentbox\\spam\\{x}--{to}.txt")
                             try:
                                 f = open(ndir, 'r+')
                             except:
@@ -198,7 +224,6 @@ class mail:
         self.lb1.delete(0, END)
         self.editbutton.configure(state = "disabled")
         l1.clear()
-
 
         for r, d, f in os.walk(p1 + '\\sentbox'):
             for file in f:
@@ -318,10 +343,10 @@ class mail:
         sub = ">" + self.click + "<"
         content = cb.get('1.0', 'end')
 
-        for word in spamwords:
-            if word in content:
-                ctr1 = 1
-                break
+        l1 = self.classifier([content])
+
+        if 1 in l1:
+            ctr1 = 1
 
         for r, d, f in os.walk(p1 + '\\sentbox'):
             for file in f:
@@ -343,7 +368,7 @@ class mail:
 
         elif ctr1 == 0 and ctr2 == 1:
             self.shift(s3+"spam\\"+fp, s3+fp, sub, content)
-            
+
     def edit2(self):
         self.die()
         self.create()
@@ -477,7 +502,7 @@ class mail:
                            os.getcwd() + "\\receivedbox\\" + item)
         Button(ff, text="Purge Inbox",
                command=purgeinbox).grid(pady=3)
-        
+
         ff.grid(padx=36, pady=30)
 
     def read2func(self):
@@ -574,6 +599,7 @@ class mail:
 
     def validatelogin(self):
         global semLogin
+
         u1 = self.user.get()
         pwd = self.pwd.get()
         ctr = 0
@@ -679,7 +705,7 @@ class mail:
         file_count = len(files)
 
         exclude=set("spam")
-        
+
         for r, d, f in os.walk(p1 + '\\sentbox'):
             for file in f:
                 if '.txt' in file:
@@ -691,13 +717,13 @@ class mail:
                             file_names.append(file)
 
         def readmessage():
-            def revSort(tup):   
-                lst = len(tup)  
-                for i in range(0, lst):  
-                    for j in range(0, lst-i-1):  
-                        if (tup[j][1] > tup[j + 1][1]):  
-                            temp = tup[j]  
-                            tup[j]= tup[j + 1]  
+            def revSort(tup):
+                lst = len(tup)
+                for i in range(0, lst):
+                    for j in range(0, lst-i-1):
+                        if (tup[j][1] > tup[j + 1][1]):
+                            temp = tup[j]
+                            tup[j]= tup[j + 1]
                             tup[j + 1]= temp
                 return tup[::-1]
             msg.config(text="")
@@ -714,7 +740,7 @@ class mail:
                         y = mail.split("<body>")
                         forprior = (y[1], int(y[0][0]))
                         priorlist.append(forprior)
-                
+
                 for vals in revSort(priorlist):
                     lines.append(vals[0])
                     lines.append("\n------\n")
